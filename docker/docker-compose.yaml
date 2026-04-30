@@ -1,0 +1,39 @@
+name: query-mcp
+
+services:
+  neo4j:
+    image: neo4j:5
+    container_name: neo4j
+    ports:
+      - "7474:7474" # HTTP UI
+      - "${NEO4J_BOLT_PORT}:7687" # Bolt
+    environment:
+      - USER_NEO4J=${USER_NEO4J}
+      - PASSWORD_NEO4J=${PASSWORD_NEO4J}
+      - NEO4J_AUTH=${USER_NEO4J}/${PASSWORD_NEO4J}
+      - NEO4J_dbms_memory_heap_initial__size=${NEO4J_INITIAL_HEAP}
+      - NEO4J_dbms_memory_heap_max__size=${NEO4J_MAX_HEAP}
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - ./scripts:/scripts
+    entrypoint: >
+      sh -c "
+      /startup/docker-entrypoint.sh neo4j &
+      sleep 10;
+      /scripts/init-neo4j.sh;
+      wait
+      "
+    restart: unless-stopped
+
+  maildev:
+    image: maildev/maildev:latest
+    container_name: maildev
+    ports:
+      - "1080:1080" # Web UI
+      - "${MAILDEV_SMTP_PORT}:1025" # SMTP
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
