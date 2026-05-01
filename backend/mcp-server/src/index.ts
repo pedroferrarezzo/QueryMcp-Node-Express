@@ -1,46 +1,37 @@
-import express, { Request, Response } from "express"
-import { MCPServerService } from "./services/mcp-server-service"
-import { registerTools } from "./tools/mcp-tools"
-import { MCP_SERVER_ENDPOINT, MCP_SERVER_PORT, validateEnv } from "./helpers/env-helper"
-import type { McpServerSetupDTO } from "./types/mcp"
+import express from "express";
+import { registerTools } from "./tools/mcp-tools";
+import { ENV } from "./config/env-config";
+import { MCPSessionManager } from "./infrastructure/input/http/session/mcp-session-manager";
+import { MCPController } from "./infrastructure/input/http/controllers/mcp-controller";
+import { createMcpRouter } from "./infrastructure/input/http/routes/mcp-routes";
+import { getNodeMailerTransporter } from "./infrastructure/output/email/nodemailer/node-mailer-transport";
+import { NodeMailerClient } from "./infrastructure/output/email/nodemailer/node-mailer-client";
+import { getNeo4jDriver } from "./infrastructure/output/repository/neo4j/neo4j-driver";
+import { Neo4jRepository } from "./infrastructure/output/repository/neo4j/neo4j-repository";
 
-try {
-    validateEnv();
-} catch (err: unknown) {
-    console.error(err instanceof Error ? err.message : err);
-    
-    process.exit(1);
-}
+const app = express();
+app.use(express.json());
 
-const app = express()
-const router = express.Router()
+const neo4jRepository = new Neo4jRepository(getNeo4jDriver());
+const emailClient = new NodeMailerClient(getNodeMailerTransporter(), ENV.EMAIL_FROM);
 
-const mcpServerSetup: McpServerSetupDTO = {
-        schema: {
-            name: "mcp-server",
-            version: "1.0.0"
-        },
-        registerToolsFunc: registerTools
-    }
-const mcpServer = new MCPServerService(mcpServerSetup)
+const sessionManager = new MCPSessionManager({
+    schema: { name: "querymcp-server", version: "1.0.0" },
+    registerToolsFunc: registerTools,
+    dbRepository: neo4jRepository,
+    emailClient: emailClient,
+});
 
-router.post(MCP_SERVER_ENDPOINT, async (req: Request, res: Response) => {
-    await mcpServer.handlePost(req, res)
-})
-router.get(MCP_SERVER_ENDPOINT, async (req: Request, res: Response) => {
-    await mcpServer.handleGet(req, res)
-})
+const controller = new MCPController(sessionManager);
 
-app.use(express.json())
-app.use('/', router)
+app.use("/", createMcpRouter(controller));
 
-app.listen(MCP_SERVER_PORT, () => {
-    console.log(`MCP server listening on port ${MCP_SERVER_PORT} and endpoint ${MCP_SERVER_ENDPOINT}`)
-    
-})
+app.listen(ENV.MCP_SERVER_PORT, () => {
+    console.log(`MCP server running on port ${ENV.MCP_SERVER_PORT}`);
+});
 
-process.on('SIGINT', async () => {
-    console.log('Shutting down MCP server...')
-    await mcpServer.cleanup();
-    process.exit(0)
-})
+process.on("SIGINT", async () => {
+    console.log("Shutting down MCP server...");
+    await sessionManager.cleanup();
+    process.exit(0);
+});
