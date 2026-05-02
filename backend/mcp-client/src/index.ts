@@ -21,7 +21,7 @@ async function initializeMcpClient() {
  * Inicializa o cliente Langchain.
  */
 function initializeLangchain() {
-  const llm = createLangchainClient(ENV.OLLAMA_MODEL_NAME, ENV.OLLAMA_HOST);
+  const llm = createLangchainClient(ENV.GEMINI_API_KEY, ENV.GEMINI_MODEL);
   return llm;
 }
 

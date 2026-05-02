@@ -5,8 +5,8 @@ const envSchema = z.object({
   MCP_CLIENT_WS_ENDPOINT: z.string().default("/ws"),
   MCP_CLIENT_PORT: z.coerce.number().default(3000),
   QUERY_MCP_SERVER_ENDPOINT: z.string(),
-  OLLAMA_MODEL_NAME: z.string(),
-  OLLAMA_HOST: z.string(),
+  GEMINI_API_KEY: z.string(),
+  GEMINI_MODEL: z.string(),
 });
 
 type Env = z.infer<typeof envSchema>;

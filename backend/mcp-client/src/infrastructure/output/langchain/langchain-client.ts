@@ -1,18 +1,18 @@
-import { ChatOllama } from "@langchain/ollama";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 
 /**
- * Cria um modelo de linguagem usando o Ollama.
- * @param modelName Nome do modelo Ollama
- * @param baseUrl URL base do servidor Ollama
- * @returns {ChatOllama} O modelo de linguagem criado.
+ * Cria um modelo de linguagem usando o Google Gemini.
+ * @param apiKey Chave de API do Google Gemini
+ * @param modelName Nome do modelo Gemini
+ * @returns {ChatGoogleGenerativeAI} O modelo de linguagem criado.
  */
 export function createLangchainClient(
-  modelName: string,
-  baseUrl: string
-): ChatOllama {
-  return new ChatOllama({
+  apiKey: string,
+  modelName: string
+): ChatGoogleGenerativeAI {
+  return new ChatGoogleGenerativeAI({
+    apiKey: apiKey,
     model: modelName,
     temperature: 0,
-    baseUrl: baseUrl,
   });
 }
