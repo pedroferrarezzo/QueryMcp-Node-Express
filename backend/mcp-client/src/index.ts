@@ -1,80 +1,64 @@
-import { MCP_CLIENT_WS_ENDPOINT, MCP_CLIENT_PORT, validateEnv } from "./helpers/env-helper.js"
-import express from "express"
-import { WebSocketServer } from "ws"
-import { processQuery, getLangchainToolsFromMcp, createLLM } from "./services/langchain-service.js"
-import { createAgent, SystemMessage } from "langchain";
-import { MemorySaver } from "@langchain/langgraph";
-import {createMcpClient} from "./services/mcp-client-service.js"
+import express from "express";
+import { WebSocketServer } from "ws";
 
-try {
-    validateEnv();
-} catch (err: unknown) {
-    console.error(err instanceof Error ? err.message : err);
-    
-    process.exit(1);
+import { ENV } from "./config/env-config.js";
+import { createMcpClient } from "./infrastructure/output/mcp/mcp-client.js";
+import { createLangchainClient } from "./infrastructure/output/langchain/langchain-client.js";
+import { getLangchainToolsFromMcp } from "./infrastructure/output/langchain/langchain-tools.js";
+import { setupWebSocketHandlers } from "./infrastructure/input/websocket/handlers/websocket-handler.js";
+
+/**
+ * Inicializa o cliente MCP e seus dependentes.
+ */
+async function initializeMcpClient() {
+  const mcpClient = await createMcpClient(ENV.QUERY_MCP_SERVER_ENDPOINT);
+  const tools = await getLangchainToolsFromMcp(mcpClient);
+
+  return { mcpClient, tools };
 }
 
-const mcpClient = await createMcpClient();
-const tools = await getLangchainToolsFromMcp(mcpClient);
-const llm = createLLM();
-const agent = createAgent({
-    model: llm,
-    tools,
-    systemPrompt: new SystemMessage({
-    content: [
-        {type: "text", text: "Responda todas as perguntas em PT-BR"}, 
-        {type: "text", text: "Use as ferramentas disponíveis para responder às perguntas, e se necessário, combine os resultados de múltiplas ferramentas."},
-        {type: "text", text: "Não diga quais ferramentas utilizou."},]}),
-});
+/**
+ * Inicializa o cliente Langchain.
+ */
+function initializeLangchain() {
+  const llm = createLangchainClient(ENV.OLLAMA_MODEL_NAME, ENV.OLLAMA_HOST);
+  return llm;
+}
 
-const app = express()
-const router = express.Router()
-app.use(express.json())
-app.use('/', router)
+/**
+ * Inicia o servidor Express e WebSocket.
+ */
+async function start() {
+  const app = express();
+  app.use(express.json());
 
-const server = app.listen(MCP_CLIENT_PORT, () => {
-    console.log(`MCP Client listening on port ${MCP_CLIENT_PORT} and endpoint ${MCP_CLIENT_WS_ENDPOINT}`)
-})
-const wss = new WebSocketServer({
+  app.use("/");
+
+  const { mcpClient, tools } = await initializeMcpClient();
+  const llm = initializeLangchain();
+
+  const server = app.listen(ENV.MCP_CLIENT_PORT, () => {
+    console.log(`MCP client running on port ${ENV.MCP_CLIENT_PORT}`);
+  });
+
+  const wss = new WebSocketServer({
     server,
-    path: MCP_CLIENT_WS_ENDPOINT
-})
+    path: ENV.MCP_CLIENT_WS_ENDPOINT,
+  });
 
-wss.on("connection", (ws: WebSocket) => {
-    const connectionId = crypto.randomUUID();
+  wss.on("connection", (ws) => {
+    setupWebSocketHandlers(ws, llm, tools);
+  });
 
-    ws.onmessage = async (event: MessageEvent) => {
-        try {
-            const parsed = JSON.parse(event.data.toString());
+  process.on("SIGINT", async () => {
+    console.log("Shutting down MCP client...");
+    wss.close();
+    server.close();
+    await mcpClient.close();
+    process.exit(0);
+  });
+}
 
-            if (!parsed.prompt) {
-                ws.send(JSON.stringify({ type: "error", message: "Missing 'prompt'" }));
-                return;
-            }
-
-            const eventStream = agent.streamEvents(
-                { messages: [{ role: "user", content: parsed.prompt }] },
-                { version: "v2", configurable: { thread_id: connectionId } },
-            );
-
-            await processQuery(eventStream, ws);
-
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : "Unknown error";
-            ws.send(JSON.stringify({ type: "error", message }));
-        }
-    };
-
-    ws.onclose = () => {
-
-    };
-
-    ws.onerror = (err) => {
-
-    };
+start().catch((err) => {
+  process.exit(1);
 });
-
-process.on('SIGINT', async () => {
-    console.log('Shutting down MCP Client...')
-    process.exit(0)
-})
